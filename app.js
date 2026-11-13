@@ -17,11 +17,36 @@ const dialogBody = document.querySelector('#dialog-body');
 let activeFilter = 'all';
 let currentProject = 0;
 let dialogTrigger = null;
+let dialogProjects = projects;
+
+const motionPreference = window.matchMedia('(prefers-reduced-motion: reduce)');
+const runningAnimations = new Set();
+function animateElement(element, keyframes, options) {
+  if (motionPreference.matches || !element.animate) return;
+  const animation = element.animate(keyframes, options);
+  runningAnimations.add(animation);
+  animation.finished.then(() => runningAnimations.delete(animation), () => runningAnimations.delete(animation));
+}
+const revealObserver = !motionPreference.matches && 'IntersectionObserver' in window
+  ? new IntersectionObserver(entries => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue;
+        revealObserver.unobserve(entry.target);
+        if (entry.target.isConnected) animateElement(entry.target, [{ opacity: .65, transform: 'translateY(18px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 680, easing: 'cubic-bezier(.22,1,.36,1)' });
+      }
+    }, { threshold: .12 })
+  : null;
+function observeReveals(elements) { elements.forEach(element => revealObserver?.observe(element)); }
+motionPreference.addEventListener('change', event => {
+  if (event.matches) { runningAnimations.forEach(animation => animation.cancel()); runningAnimations.clear(); revealObserver?.disconnect(); }
+});
 
 function visibleProjects(){return projects.filter(project => activeFilter === 'all' || project.category === activeFilter);}
 function renderProjects(){
   const visible = visibleProjects();
+  grid.querySelectorAll('.project-card').forEach(card => revealObserver?.unobserve(card));
   grid.innerHTML = visible.map(project => `<article class="project-card"><button class="project-image" type="button" data-project="${project.id}" aria-label="Открыть проект: ${project.title}"><img src="./assets/${project.image}" alt="${project.alt}" width="1200" height="900" loading="lazy"><span class="project-arrow" aria-hidden="true">↗</span></button><div class="project-card-header"><h3><button type="button" data-project="${project.id}">${project.title}</button></h3><span class="project-year">${project.year}</span></div><p class="project-meta"><span>${project.categoryLabel}</span><span>${project.area}</span><span>Концепт</span></p></article>`).join('');
+  observeReveals(grid.querySelectorAll('.project-card'));
   count.textContent = `Показано ${visible.length} ${visible.length === 1 ? 'проект' : visible.length < 5 ? 'проекта' : 'проектов'}`;
 }
 filters.forEach(button => button.addEventListener('click',()=>{
@@ -30,15 +55,17 @@ filters.forEach(button => button.addEventListener('click',()=>{
   renderProjects();
 }));
 function renderDialog(){
-  const project = projects[currentProject];
+  const project = dialogProjects[currentProject];
   dialogBody.innerHTML = `<div class="dialog-hero"><img src="./assets/${project.image}" alt="${project.alt}" width="1200" height="800"></div><div class="dialog-info"><p class="eyebrow">${project.categoryLabel.toLocaleUpperCase('ru-RU')} / КОНЦЕПТ</p><h2 id="dialog-title">${project.title}</h2><dl class="dialog-facts"><div><dt>Площадь</dt><dd>${project.area}</dd></div><div><dt>Год концепции</dt><dd>${project.year}</dd></div><div><dt>Палитра</dt><dd>${project.material}</dd></div></dl><p class="dialog-description">${project.description}</p><p class="dialog-demo">Вымышленный проект для демонстрации интерфейса. Изображение иллюстрирует настроение концепции и не является результатом работы реального бюро.</p></div>`;
-  document.querySelector('#dialog-index').textContent = `${String(currentProject + 1).padStart(2,'0')} / ${String(projects.length).padStart(2,'0')}`;
+  document.querySelector('#dialog-index').textContent = `${String(currentProject + 1).padStart(2,'0')} / ${String(dialogProjects.length).padStart(2,'0')}`;
   dialog.scrollTop = 0;
 }
 grid.addEventListener('click',event=>{
   const trigger = event.target.closest('[data-project]');
   if(!trigger)return;
-  currentProject = projects.findIndex(project=>project.id===trigger.dataset.project);
+  dialogProjects = visibleProjects();
+  currentProject = dialogProjects.findIndex(project=>project.id===trigger.dataset.project);
+  if (currentProject < 0) return;
   dialogTrigger = trigger;
   renderDialog();
   dialog.showModal();
@@ -47,8 +74,8 @@ grid.addEventListener('click',event=>{
 document.querySelector('.dialog-close').addEventListener('click',()=>dialog.close());
 dialog.addEventListener('click',event=>{if(event.target===dialog){const rect=dialog.getBoundingClientRect();if(event.clientX<rect.left||event.clientX>rect.right||event.clientY<rect.top||event.clientY>rect.bottom)dialog.close();}});
 dialog.addEventListener('close',()=>{if(dialogTrigger?.isConnected)dialogTrigger.focus();});
-document.querySelector('#previous-project').addEventListener('click',()=>{currentProject=(currentProject+projects.length-1)%projects.length;renderDialog();});
-document.querySelector('#next-project').addEventListener('click',()=>{currentProject=(currentProject+1)%projects.length;renderDialog();});
+document.querySelector('#previous-project').addEventListener('click',()=>{currentProject=(currentProject+dialogProjects.length-1)%dialogProjects.length;renderDialog();});
+document.querySelector('#next-project').addEventListener('click',()=>{currentProject=(currentProject+1)%dialogProjects.length;renderDialog();});
 
 const menuToggle = document.querySelector('.menu-toggle');
 const mobileMenu = document.querySelector('#mobile-menu');
@@ -87,3 +114,20 @@ document.querySelector('.download-brief').addEventListener('click',()=>{
   const link=document.createElement('a');link.href=url;link.download='forma-brief.txt';document.body.append(link);link.click();link.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);
 });
 renderProjects();
+
+
+// Animate only elements entering the viewport; all content remains visible without JavaScript.
+observeReveals(document.querySelectorAll('.intro-content, .section-heading, .manifesto-text, .principle, .process-list details, .brief-grid, .footer-top'));
+animateElement(document.querySelector('.hero-copy'), [{ opacity: .75, transform: 'translateY(12px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 800, easing: 'cubic-bezier(.22,1,.36,1)' });
+animateElement(document.querySelector('.hero-photo'), [{ opacity: .8, transform: 'translateY(18px)' }, { opacity: 1, transform: 'translateY(0)' }], { duration: 1000, easing: 'cubic-bezier(.22,1,.36,1)' });
+const progress = document.querySelector('.reading-progress');
+let progressFrame = 0;
+function updateProgress() {
+  const distance = document.documentElement.scrollHeight - window.innerHeight;
+  progress.style.transform = `scaleX(${distance > 0 ? Math.max(0, Math.min(1, window.scrollY / distance)) : 0})`;
+  progressFrame = 0;
+}
+function scheduleProgress() { if (!progressFrame) progressFrame = requestAnimationFrame(updateProgress); }
+window.addEventListener('scroll', scheduleProgress, { passive: true });
+window.addEventListener('resize', scheduleProgress);
+updateProgress();
